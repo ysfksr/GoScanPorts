@@ -10,14 +10,16 @@ import (
 )
 
 type PortScanner struct {
-	host    string
-	timeout time.Duration
+	host       string
+	timeout    time.Duration
+	retryCount int
 }
 
-func NewPortScanner(host string, timeout time.Duration) *PortScanner {
+func NewPortScanner(host string, timeout time.Duration, retryCount int) *PortScanner {
 	return &PortScanner{
-		host:    host,
-		timeout: timeout,
+		host:       host,
+		timeout:    timeout,
+		retryCount: retryCount,
 	}
 }
 
@@ -25,14 +27,33 @@ func (ps *PortScanner) ScanPort(port int, wg *sync.WaitGroup, openPorts chan<- i
 	defer wg.Done()
 
 	address := fmt.Sprintf("%s:%d", ps.host, port)
-	conn, err := net.DialTimeout("tcp", address, ps.timeout)
 
-	if err != nil {
-		return
+	// Try multiple times to ensure reliability
+	for attempt := 0; attempt <= ps.retryCount; attempt++ {
+		conn, err := net.DialTimeout("tcp", address, ps.timeout)
+
+		if err == nil {
+			// Successfully connected, verify it's truly open
+			if conn != nil {
+				// Set a deadline to ensure the connection is real
+				conn.SetDeadline(time.Now().Add(ps.timeout))
+
+				// Try to read/write to verify the connection
+				buf := make([]byte, 1)
+				conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				_, _ = conn.Read(buf)
+
+				conn.Close()
+				openPorts <- port
+				return
+			}
+		}
+
+		// If not the last attempt, wait a bit before retrying
+		if attempt < ps.retryCount {
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
-
-	conn.Close()
-	openPorts <- port
 }
 
 func (ps *PortScanner) Scan(startPort, endPort int) []int {
@@ -129,7 +150,8 @@ func main() {
 	host := flag.String("host", "localhost", "Host to scan (e.g., localhost, 192.168.1.1)")
 	startPort := flag.Int("start", 1, "Start port")
 	endPort := flag.Int("end", 1024, "End port")
-	timeout := flag.Int("timeout", 1000, "Connection timeout in milliseconds")
+	timeout := flag.Int("timeout", 2000, "Connection timeout in milliseconds")
+	retries := flag.Int("retries", 2, "Number of retries for each port")
 	popular := flag.Bool("popular", false, "Scan only popular ports (web, databases, etc.)")
 
 	flag.Parse()
@@ -144,7 +166,7 @@ func main() {
 		return
 	}
 
-	scanner := NewPortScanner(*host, time.Duration(*timeout)*time.Millisecond)
+	scanner := NewPortScanner(*host, time.Duration(*timeout)*time.Millisecond, *retries)
 	startTime := time.Now()
 
 	var openPorts []int
