@@ -153,8 +153,14 @@ func main() {
 	timeout := flag.Int("timeout", 2000, "Connection timeout in milliseconds")
 	retries := flag.Int("retries", 2, "Number of retries for each port")
 	popular := flag.Bool("popular", false, "Scan only popular ports (web, databases, etc.)")
+	thx := flag.Bool("thx", false, "Show credits")
 
 	flag.Parse()
+
+	if *thx {
+		fmt.Println("You are welcome (https://github.com/ysfksr)")
+		return
+	}
 
 	if *startPort < 1 || *startPort > 65535 || *endPort < 1 || *endPort > 65535 {
 		fmt.Println("Error: Port range must be between 1 and 65535")
